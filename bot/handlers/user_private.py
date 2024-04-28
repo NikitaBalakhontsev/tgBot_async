@@ -7,7 +7,12 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, FSInputFile, ReplyKeyboardRemove
 
 import bot.keyboards as kb
-private_router = Router()
+from bot.filters import ChatTypeFilter, IsAdmin
+
+
+user_private_router = Router()
+#Отключить админам базовый сценарий бота
+#user_private_router.message.filter(ChatTypeFilter(["private"]), ~IsAdmin())
 
 class Customer(StatesGroup):
     start = State()
@@ -16,25 +21,15 @@ class Customer(StatesGroup):
     confirm = State()
     payment = State()
 
+    ru_zodiac_sign = ''
+    en_zodiac_sign = ''
 
-ZODIAC_SINGS = [
-    {'ru': 'Овен', 'en': 'aries'},
-    {'ru': 'Телец', 'en': 'taurus'},
-    {'ru': 'Близнецы', 'en': 'gemini'},
-    {'ru': 'Рак', 'en': 'cancer'},
-    {'ru': 'Лев', 'en': 'leo'},
-    {'ru': 'Дева', 'en': 'virgo'},
-    {'ru': 'Весы', 'en': 'libra'},
-    {'ru': 'Скорпион', 'en': 'scorpio'},
-    {'ru': 'Стрелец', 'en': 'sagittarius'},
-    {'ru': 'Козерог', 'en': 'capricorn'},
-    {'ru': 'Водолей', 'en': 'aquarius'},
-    {'ru': 'Рыбы', 'en': 'pisces'},
-]
+
+
 
 # Проверка, что пользователь подписан на канал по команде старт
-@private_router.message(StateFilter(None))
-@private_router.message(CommandStart())
+@user_private_router.message(StateFilter(None))
+@user_private_router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot, state: FSMContext):
     channel_id = os.getenv("CHANNEL_ID")
     user_channel_info = await bot.get_chat_member(user_id=message.from_user.id, chat_id=channel_id)
@@ -57,25 +52,25 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext):
 
 '''
 @private_router.message(Customer.start, (F.text.casefold() == 'узнать прогноз') | (F.text.casefold().contains('прогноз')))
-async def display_zodiac_signs(message: Message):
-    zodiac_btns = {sign['ru']: sign['en'] for sign in ZODIAC_SINGS}
+async def display_zodiac_signs(message: Message, bot: Bot):
+    zodiac_btns = {sign['ru']: sign['en'] for sign in bot.zodiac_signs}
     await message.answer(text='Выбери знак зодиака', reply_markup=kb.get_callback_btns(btns=zodiac_btns))
 '''
 
-@private_router.callback_query(F.data == 'predict')
-async def display_zodiac_signs(callback: CallbackQuery):
-    zodiac_btns = {sign['ru']: sign['en'] for sign in ZODIAC_SINGS}
+@user_private_router.callback_query(F.data == 'predict')
+async def display_zodiac_signs(callback: CallbackQuery, bot: Bot):
+    zodiac_btns = {sign['ru']: sign['en'] for sign in bot.zodiac_signs}
     await callback.message.answer(text='Выбери знак зодиака', reply_markup=kb.get_callback_btns(btns=zodiac_btns))
 
-@private_router.callback_query(F.data.in_({'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius',
+@user_private_router.callback_query(F.data.in_({'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius',
                     'capricorn', 'aquarius', 'pisces'}))
-async def handle_zodiac_sign(callback: CallbackQuery, state: FSMContext):
+async def handle_zodiac_sign(callback: CallbackQuery, state: FSMContext, bot: Bot):
     en_zodiac_sign = callback.data
-    for sign in ZODIAC_SINGS:
+    for sign in bot.zodiac_signs:
         if sign['en'] == en_zodiac_sign:
             ru_zodiac_sign = sign['ru']
 
-    await state.update_data(zodiac_sign=callback.data)
+    await state.update_data(ru_zodiac_sign=ru_zodiac_sign, en_zodiac_sign=en_zodiac_sign)
     await callback.message.edit_text(text=f'Выбран знак зодиака', reply_markup=kb.get_callback_btns(btns={
         ru_zodiac_sign: 'none'
     }))
@@ -85,11 +80,7 @@ async def handle_zodiac_sign(callback: CallbackQuery, state: FSMContext):
 
 async def display_data(message: Message, state: FSMContext):
     state_data = await state.get_data()
-    en_zodiac_sign = state_data['zodiac_sign']
-    for sign in ZODIAC_SINGS:
-        if sign['en'] == en_zodiac_sign:
-            ru_zodiac_sign = sign['ru']
-
+    ru_zodiac_sign = state_data['ru_zodiac_sign']
     await message.answer(text=f'Подтвердите данные {ru_zodiac_sign}', reply_markup=kb.get_callback_btns(btns={
         'Подтвердить': 'confirm_btn',
         'Назад': 'back_btn'
@@ -129,8 +120,8 @@ async def back_step_handler(message: Message, state: FSMContext) -> None:
         await display_data(message=message, state=state)
 '''
 
-@private_router.callback_query(F.data == 'back_btn')
-async def back_step_handler(callback: CallbackQuery, state: FSMContext) -> None:
+@user_private_router.callback_query(F.data == 'back_btn')
+async def back_step_handler(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
 
     current_state = await state.get_state()
 
@@ -140,11 +131,11 @@ async def back_step_handler(callback: CallbackQuery, state: FSMContext) -> None:
 
     elif current_state == Customer.confirm:
         await state.set_state(Customer.zodiac_sign)
-        await display_zodiac_signs(callback=callback)
+        await display_zodiac_signs(callback=callback, bot=bot)
 
     elif current_state == Customer.payment:
         await state.set_state(Customer.confirm)
-        await display_data(callback=callback.message, state=state)
+        await display_data(callback=callback.message, state=state, bot=bot)
 
 payments_router = Router()
 '''
@@ -165,7 +156,11 @@ async def payment(message: Message, bot: Bot, state: FSMContext):
 @payments_router.callback_query(F.data == 'confirm_btn')
 async def payment(callback: CallbackQuery, bot: Bot, state: FSMContext):
     await state.set_state(Customer.payment)
-    await callback.message.answer(text='Данные подтверждены, переходим к оплате')
+    state_data = await state.get_data()
+    ru_zodiac_sign = state_data['ru_zodiac_sign']
+    await callback.message.edit_text(text=f'Подтвердите данные {ru_zodiac_sign}', reply_markup=kb.get_callback_btns(btns={
+        'Подтверждено': 'none',
+    }))
     await bot.send_invoice(callback.message.chat.id,
                            'Прогноз',
                            'Ты узнаешь все',
