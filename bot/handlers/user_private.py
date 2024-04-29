@@ -1,4 +1,6 @@
 import os
+import pathlib
+import logging
 
 from aiogram import F, Router, Bot
 from aiogram.filters import CommandStart, StateFilter, Command
@@ -9,22 +11,22 @@ from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
 import bot.keyboards as kb
 from bot.filters import ChatTypeFilter, IsAdmin
 
-
 user_private_router = Router()
-#Отключить админам базовый сценарий бота
-#user_private_router.message.filter(ChatTypeFilter(["private"]), ~IsAdmin())
+payment_loger = logging.getLogger('payment')
+
+
+# Отключить админам базовый сценарий бота
+# user_private_router.message.filter(ChatTypeFilter(["private"]), ~IsAdmin())
 
 class Customer(StatesGroup):
     start = State()
-    #gender = State()
+    # gender = State()
     zodiac_sign = State()
     confirm = State()
     payment = State()
 
     ru_zodiac_sign = ''
     en_zodiac_sign = ''
-
-
 
 
 # Проверка, что пользователь подписан на канал по команде старт
@@ -37,7 +39,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext):
     if user_channel_info.status == 'kicked':
         await message.answer('Ты в бане, свяжись с администраторами группы ...')
     elif user_channel_info.status == 'left':
-        #Пригласительная ссылка
+        # Пригласительная ссылка
         chat = await bot.get_chat(channel_id)
         if hasattr(chat, 'invite_link') and chat.invite_link:
             invite_link = chat.invite_link
@@ -50,6 +52,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext):
         }))
         await state.set_state(Customer.start)
 
+
 '''
 @private_router.message(Customer.start, (F.text.casefold() == 'узнать прогноз') | (F.text.casefold().contains('прогноз')))
 async def display_zodiac_signs(message: Message, bot: Bot):
@@ -57,13 +60,16 @@ async def display_zodiac_signs(message: Message, bot: Bot):
     await message.answer(text='Выбери знак зодиака', reply_markup=kb.get_callback_btns(btns=zodiac_btns))
 '''
 
+
 @user_private_router.callback_query(F.data == 'predict')
 async def display_zodiac_signs(callback: CallbackQuery, bot: Bot):
     zodiac_btns = {sign['ru']: sign['en'] for sign in bot.zodiac_signs}
     await callback.message.answer(text='Выбери знак зодиака', reply_markup=kb.get_callback_btns(btns=zodiac_btns))
 
-@user_private_router.callback_query(F.data.in_({'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius',
-                    'capricorn', 'aquarius', 'pisces'}))
+
+@user_private_router.callback_query(
+    F.data.in_({'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius',
+                'capricorn', 'aquarius', 'pisces'}))
 async def handle_zodiac_sign(callback: CallbackQuery, state: FSMContext, bot: Bot):
     en_zodiac_sign = callback.data
     for sign in bot.zodiac_signs:
@@ -85,6 +91,7 @@ async def display_data(message: Message, state: FSMContext):
         'Подтвердить': 'confirm_btn',
         'Назад': 'back_btn'
     }))
+
 
 '''
 @private_router.message(StateFilter('*'), Command("отмена"))
@@ -120,9 +127,9 @@ async def back_step_handler(message: Message, state: FSMContext) -> None:
         await display_data(message=message, state=state)
 '''
 
+
 @user_private_router.callback_query(F.data == 'back_btn')
 async def back_step_handler(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-
     current_state = await state.get_state()
 
     if current_state == Customer.start or current_state == Customer.zodiac_sign:
@@ -136,6 +143,7 @@ async def back_step_handler(callback: CallbackQuery, state: FSMContext, bot: Bot
     elif current_state == Customer.payment:
         await state.set_state(Customer.confirm)
         await display_data(callback=callback.message, state=state, bot=bot)
+
 
 payments_router = Router()
 '''
@@ -153,22 +161,25 @@ async def payment(message: Message, bot: Bot, state: FSMContext):
                            )
 '''
 
+
 @payments_router.callback_query(F.data == 'confirm_btn')
 async def payment(callback: CallbackQuery, bot: Bot, state: FSMContext):
     await state.set_state(Customer.payment)
     state_data = await state.get_data()
     ru_zodiac_sign = state_data['ru_zodiac_sign']
-    await callback.message.edit_text(text=f'Подтвердите данные {ru_zodiac_sign}', reply_markup=kb.get_callback_btns(btns={
-        'Подтверждено': 'none',
-    }))
+    await callback.message.edit_text(text=f'Подтвердите данные {ru_zodiac_sign}',
+                                     reply_markup=kb.get_callback_btns(btns={
+                                         'Подтверждено': 'none',
+                                     }))
     await bot.send_invoice(callback.message.chat.id,
                            'Прогноз',
                            'Ты узнаешь все',
                            'invoice',
                            os.getenv('PAYMENT_TOKEN'),
                            'RUB',
-                           [LabeledPrice(label='Прогноз', amount= 200 * 100)]
+                           [LabeledPrice(label='Прогноз', amount=200 * 100)]
                            )
+
 
 @payments_router.pre_checkout_query(lambda query: True)
 async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery, bot: Bot):
@@ -176,13 +187,16 @@ async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery, bot: 
 
 
 @payments_router.message(F.successful_payment)
-async def successful_payment(message: Message, state: FSMContext):
-    for j,k in message.successful_payment:
-        print(f"{j} = {k}")
+async def successful_payment(message: Message, state: FSMContext, bot: Bot):
+    state_data = await state.get_data()
+    ru_zodiac_sign = state_data['ru_zodiac_sign']
     await state.update_data(payment=message.successful_payment)
-    await message.answer(f'Ваш платеж на сумму {message.successful_payment.total_amount // 100} прошел успешно. Ниже прикреплен файл с разбором' )
-    await message.answer_document(FSInputFile(path=r'C:\Users\Nikita\pycharmProjects\tg_bot_test\data\test.pdf'))
+    await message.answer(
+        f'Ваш платеж на сумму {message.successful_payment.total_amount // 100} '
+        f'прошел успешно. Ниже прикреплен файл с разбором')
+    path = pathlib.Path(bot.data_path, f"{ru_zodiac_sign}.pdf")
+    await message.answer_document(FSInputFile(path=path))
 
-    print(await state.get_data())
+    log_payment_data = await state.get_data()
+    payment_loger.log(15, log_payment_data.values())
     await state.clear()
-
