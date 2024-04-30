@@ -1,3 +1,4 @@
+import json
 import os
 import pathlib
 import logging
@@ -189,14 +190,20 @@ async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery, bot: 
 @payments_router.message(F.successful_payment)
 async def successful_payment(message: Message, state: FSMContext, bot: Bot):
     state_data = await state.get_data()
+    zodiac_sign = state_data['zodiac_sign']
     ru_zodiac_sign = state_data['ru_zodiac_sign']
-    await state.update_data(payment=message.successful_payment)
+
+    log_payment_data = dict(message.successful_payment)
+    log_payment_data['zodiac_sign'] = zodiac_sign
+    log_payment_data['ru_zodiac_sign'] = ru_zodiac_sign
+    payment_loger.log(15, json.dumps(log_payment_data, ensure_ascii=False))
+
+    await state.clear()
+
     await message.answer(
         f'Ваш платеж на сумму {message.successful_payment.total_amount // 100} '
         f'прошел успешно. Ниже прикреплен файл с разбором')
     path = pathlib.Path(bot.data_path, f"{ru_zodiac_sign}.pdf")
     await message.answer_document(FSInputFile(path=path))
 
-    log_payment_data = await state.get_data()
-    payment_loger.log(15, log_payment_data.values())
-    await state.clear()
+
