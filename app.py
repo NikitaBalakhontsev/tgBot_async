@@ -44,7 +44,7 @@ bot.files_dict = {sign['ru']: 'none' for sign in bot.zodiac_signs}
 bot.data_path = Path('data')
 
 # bot.price цена на услугу. Заполняется в admin.private.py
-bot.price = None
+bot.price = 200 * 100
 
 dp = Dispatcher()
 dp.include_routers(channel_router,

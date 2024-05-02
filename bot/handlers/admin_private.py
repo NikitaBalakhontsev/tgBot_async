@@ -37,7 +37,7 @@ def update_files_dict(files_dict: dict, data_path: pathlib.Path):
     for zodiac_sign in files_dict.keys():
         path = pathlib.Path(f'{data_path}/{zodiac_sign}.pdf')
         if path.exists():
-            print(f'файл {zodiac_sign} найден, путь {path}')
+            #print(f'файл {zodiac_sign} найден, путь {path}')
             files_dict[zodiac_sign] = path
 
 
@@ -105,7 +105,7 @@ async def display_price_options(message: Message, bot: Bot, state: FSMContext):
 
     await state.clear()
     await state.set_state(Admin.price_options)
-    await message.answer(text=f'Текущая цена <b>[{current_price}]</b>',
+    await message.answer(text=f'Текущая цена <b>[{current_price // 100}]</b>',
                          reply_markup=kb.get_callback_btns(btns={
                              'Заменить': 'change_price',
                              'Назад': 'back_btn'
@@ -131,7 +131,7 @@ async def request_price(callback: CallbackQuery, bot: Bot, state: FSMContext):
 
     await state.set_state(Admin.request_price)
     await callback.answer('')
-    await callback.message.edit_text(text=f'Текущая цена <b>[{current_price}]</b> \n\n Отправьте в чат новую цену ('
+    await callback.message.edit_text(text=f'Текущая цена <b>[{current_price // 100}]</b> \n\n Отправьте в чат новую цену ('
                                           f'целое,в рублях)', reply_markup=kb.get_callback_btns(btns={
         'Назад': 'back_btn'
     }))
@@ -146,11 +146,12 @@ async def change_price(message: Message, bot: Bot, state: FSMContext):
         new_price = int(message.text)
         if new_price <= 0:
             raise ValueError("Цена должна быть положительным числом.")
-        bot.price = new_price
+        #telegram ожидает цену в копейках
+        bot.price = new_price * 100
 
         await state.clear()
         await state.set_state(Admin.start)
-        await message.answer(text=f"Новая цена успешно установлена: {new_price}")
+        await message.answer(text=f"Новая цена успешно установлена: {bot.price // 100}")
 
     except ValueError as e:
         await message.answer(text=f"Ошибка: {e}. Пожалуйста, введите положительное целое число.")
