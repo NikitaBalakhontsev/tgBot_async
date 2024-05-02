@@ -3,6 +3,8 @@ import os
 import pathlib
 import logging
 
+from datetime import datetime as datetime
+
 from aiogram import F, Router, Bot
 from aiogram.filters import CommandStart, StateFilter, Command
 from aiogram.fsm.context import FSMContext
@@ -24,7 +26,6 @@ class Customer(StatesGroup):
     # gender = State()
     zodiac_sign = State()
     confirm = State()
-    payment = State()
 
     ru_zodiac_sign = ''
     en_zodiac_sign = ''
@@ -38,19 +39,21 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext):
     user_channel_info = await bot.get_chat_member(user_id=message.from_user.id, chat_id=channel_id)
 
     if user_channel_info.status == 'kicked':
-        await message.answer('Ты в бане, свяжись с администраторами группы ...')
+        await message.answer('Вы в бане, свяжись с администраторами группы ...')
+
     elif user_channel_info.status == 'left':
-        # Пригласительная ссылка
         chat = await bot.get_chat(channel_id)
         if hasattr(chat, 'invite_link') and chat.invite_link:
             invite_link = chat.invite_link
         else:
             invite_link = await bot.export_chat_invite_link(channel_id)
         await message.answer(f'Рад, что тебе заинтересовал прогноз, сначала подпишись на канал {invite_link}')
+
     else:
         await message.answer('Приветственное сообщение ...', reply_markup=kb.get_callback_btns(btns={
             'Получить прогноз': 'predict'
         }))
+        await state.clear()
         await state.set_state(Customer.start)
 
 
@@ -62,37 +65,59 @@ async def display_zodiac_signs(message: Message, bot: Bot):
 '''
 
 
-@user_private_router.callback_query(F.data == 'predict')
-async def display_zodiac_signs(callback: CallbackQuery, bot: Bot):
+@user_private_router.callback_query(StateFilter(Customer.start), F.data == 'predict')
+@user_private_router.callback_query(StateFilter(Customer.confirm), F.data == 'back_btn')
+async def display_zodiac_signs(callback: CallbackQuery, bot: Bot, state: FSMContext):
     zodiac_btns = {sign['ru']: sign['en'] for sign in bot.zodiac_signs}
-    await callback.message.answer(text='Выбери знак зодиака', reply_markup=kb.get_callback_btns(btns=zodiac_btns))
+
+    await state.set_state(Customer.zodiac_sign)
+    text = 'Выбери знак зодиака'
+    reply_markup = kb.get_callback_btns(btns=zodiac_btns)
+    if callback.data == 'back_btn':
+        await callback.message.edit_text(text=text, reply_markup=reply_markup)
+    else:
+        await callback.message.answer(text=text, reply_markup=reply_markup)
 
 
-@user_private_router.callback_query(
-    F.data.in_({'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius',
-                'capricorn', 'aquarius', 'pisces'}))
+@user_private_router.callback_query(StateFilter(Customer.zodiac_sign), F.data.in_({
+    'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius',
+    'capricorn', 'aquarius', 'pisces'}))
 async def handle_zodiac_sign(callback: CallbackQuery, state: FSMContext, bot: Bot):
     en_zodiac_sign = callback.data
+    ru_zodiac_sign = None
     for sign in bot.zodiac_signs:
         if sign['en'] == en_zodiac_sign:
             ru_zodiac_sign = sign['ru']
 
-    await state.update_data(ru_zodiac_sign=ru_zodiac_sign, en_zodiac_sign=en_zodiac_sign)
-    await callback.message.edit_text(text=f'Выбран знак зодиака', reply_markup=kb.get_callback_btns(btns={
-        ru_zodiac_sign: 'none'
-    }))
+    await state.clear()
     await state.set_state(Customer.confirm)
-    await display_data(message=callback.message, state=state)
+    await state.update_data(ru_zodiac_sign=ru_zodiac_sign, en_zodiac_sign=en_zodiac_sign)
+    await callback.message.edit_text(text=f'Прогноз почти у вас, остался последний шаг \n'
+                                          f'Подтвердите данные \n'
+                                          f'Знак зодиака <b>[{ru_zodiac_sign}]</b> \n'
+                                          f'Сумма платежа <b>[{bot.price // 100}]</b>',
+                                     reply_markup=kb.get_callback_btns(btns={
+
+                                         'Подтвердить': 'confirm_btn',
+                                         'Назад': 'back_btn'
+                                     }))
 
 
-async def display_data(message: Message, state: FSMContext):
+
+'''
+async def display_data(message: Message, state: FSMContext, bot: Bot):
     state_data = await state.get_data()
     ru_zodiac_sign = state_data['ru_zodiac_sign']
-    await message.answer(text=f'Подтвердите данные {ru_zodiac_sign}', reply_markup=kb.get_callback_btns(btns={
-        'Подтвердить': 'confirm_btn',
-        'Назад': 'back_btn'
-    }))
+    await message.answer(text=f'Прогноз почти у вас, остался последний шаг \n'
+                              f'Подтвердите данные \n'
+                              f'Знак зодиака <b>[{ru_zodiac_sign}]</b> \n'
+                              f'Сумма платежа <b>[{bot.price // 100}]</b>',
+                         reply_markup=kb.get_callback_btns(btns={
 
+                             'Подтвердить': 'confirm_btn',
+                             'Назад': 'back_btn'
+                         }))
+'''
 
 '''
 @private_router.message(StateFilter('*'), Command("отмена"))
@@ -128,7 +153,7 @@ async def back_step_handler(message: Message, state: FSMContext) -> None:
         await display_data(message=message, state=state)
 '''
 
-
+'''
 @user_private_router.callback_query(F.data == 'back_btn')
 async def back_step_handler(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     current_state = await state.get_state()
@@ -144,7 +169,7 @@ async def back_step_handler(callback: CallbackQuery, state: FSMContext, bot: Bot
     elif current_state == Customer.payment:
         await state.set_state(Customer.confirm)
         await display_data(callback=callback.message, state=state, bot=bot)
-
+'''
 
 payments_router = Router()
 '''
@@ -163,22 +188,19 @@ async def payment(message: Message, bot: Bot, state: FSMContext):
 '''
 
 
-@payments_router.callback_query(F.data == 'confirm_btn')
-async def payment(callback: CallbackQuery, bot: Bot, state: FSMContext):
-    await state.set_state(Customer.payment)
+@payments_router.callback_query(StateFilter(Customer.confirm), F.data == 'confirm_btn')
+async def order(callback: CallbackQuery, bot: Bot, state: FSMContext):
     state_data = await state.get_data()
     ru_zodiac_sign = state_data['ru_zodiac_sign']
-    await callback.message.edit_text(text=f'Подтвердите данные {ru_zodiac_sign}',
-                                     reply_markup=kb.get_callback_btns(btns={
-                                         'Подтверждено': 'none',
-                                     }))
+
     await bot.send_invoice(callback.message.chat.id,
-                           'Прогноз',
-                           'Ты узнаешь все',
-                           'invoice',
-                           os.getenv('PAYMENT_TOKEN'),
-                           'RUB',
-                           [LabeledPrice(label='Прогноз', amount=200 * 100)]
+                           title='Прогноз',
+                           description=f'Ты узнаешь все о {ru_zodiac_sign}',
+                           payload='invoice',
+                           provider_token=os.getenv('LIVE_PAYMENT_TOKEN'),
+                           currency='RUB',
+                           prices=[LabeledPrice(label=f'Прогноз {ru_zodiac_sign}', amount=bot.price)],
+                           provider_data=json.dumps({"capture": True})
                            )
 
 
@@ -190,16 +212,9 @@ async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery, bot: 
 @payments_router.message(F.successful_payment)
 async def successful_payment(message: Message, state: FSMContext, bot: Bot):
     state_data = await state.get_data()
-    zodiac_sign = state_data['zodiac_sign']
     ru_zodiac_sign = state_data['ru_zodiac_sign']
 
-    log_payment_data = dict(message.successful_payment)
-    log_payment_data['zodiac_sign'] = zodiac_sign
-    log_payment_data['ru_zodiac_sign'] = ru_zodiac_sign
-    payment_loger.log(15, json.dumps(log_payment_data, ensure_ascii=False))
-
-    await state.clear()
-
+    await logging_successful_payment(message=message, state=state)
     await message.answer(
         f'Ваш платеж на сумму {message.successful_payment.total_amount // 100} '
         f'прошел успешно. Ниже прикреплен файл с разбором')
@@ -207,3 +222,32 @@ async def successful_payment(message: Message, state: FSMContext, bot: Bot):
     await message.answer_document(FSInputFile(path=path))
 
 
+async def logging_successful_payment(message: Message, state: FSMContext) -> None:
+    state_data = await state.get_data()
+    en_zodiac_sign = state_data['en_zodiac_sign']
+    ru_zodiac_sign = state_data['ru_zodiac_sign']
+
+    log_payment_data = {
+        'datetime': datetime.now().strftime('%Y-%m-%d_%H-%M-%S'),
+        'user': {
+            'user_id': message.from_user.id,
+            'username': message.from_user.username,
+            'first_name': message.from_user.first_name,
+            'last_name': message.from_user.last_name
+        },
+        'zodiac_sign': {
+            'ru_zodiac_sign': ru_zodiac_sign,
+            'en_zodiac_sign': en_zodiac_sign
+        },
+        'payment_data': {
+            'currency': message.successful_payment.currency,
+            'amount': message.successful_payment.total_amount // 100,
+            'invoice': message.successful_payment.invoice_payload,
+            'telegram payment id': message.successful_payment.telegram_payment_charge_id,
+            'provider payment in': message.successful_payment.provider_payment_charge_id,
+            'shipping option': message.successful_payment.shipping_option_id,
+            'order_info': message.successful_payment.order_info
+        },
+    }
+
+    payment_loger.log(15, json.dumps(log_payment_data, ensure_ascii=False))
