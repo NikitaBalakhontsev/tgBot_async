@@ -33,7 +33,7 @@ bot.data_path = Path('data')
 bot.files_dict = create_bot_files_dict(zodiac_signs=zodiac_signs, json_path=Path(bot.data_path, 'files.json'))
 
 # bot.price цена на услугу. Заполняется в admin.private.py
-bot.price = 200 * 100
+bot.price = 0
 
 dp = Dispatcher()
 dp.include_routers(channel_router,
