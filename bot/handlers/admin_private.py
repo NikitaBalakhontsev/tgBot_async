@@ -1,7 +1,8 @@
+import json
 import os
-import pathlib
 import traceback
 
+from pathlib import Path
 from aiogram import F, Router, Bot
 from aiogram.filters import Command, StateFilter, or_f
 from aiogram.fsm.context import FSMContext
@@ -33,12 +34,12 @@ class Admin(StatesGroup):
 
 
 # Считываем данные из директории data путь храниться в bot.data_path
-def update_files_dict(files_dict: dict, data_path: pathlib.Path):
+def update_files_dict(files_dict: dict, data_path: Path):
     for zodiac_sign in files_dict.keys():
-        path = pathlib.Path(f'{data_path}/{zodiac_sign}.pdf')
+        path = Path(f'{data_path}/{zodiac_sign}.pdf')
         if path.exists():
             #print(f'файл {zodiac_sign} найден, путь {path}')
-            files_dict[zodiac_sign] = path
+            files_dict[zodiac_sign]['path'] = str(path)
 
 
 # Запуск панели администратора
@@ -82,9 +83,9 @@ async def display_files(message: Message, bot: Bot, state: FSMContext):
             text=f'Директория {data_path} не найдено. Проверьте значение параметра bot.data_path в файле app.py')
         return
     files = os.listdir(data_path)
-    zodiac_files = bot.files_dict.values()
+    zodiac_paths = [data['path'] for data in bot.files_dict.values() if data['path'] is not None]
 
-    used_files = [filename for filename in files if pathlib.Path(data_path, filename) in zodiac_files]
+    used_files = [filename for filename in files if str(Path(data_path, filename)) in zodiac_paths]
     unused_files = [filename for filename in files if filename not in used_files]
 
     used_files_section = as_marked_section("Используемые файлы", *used_files, marker='✅')
@@ -175,7 +176,7 @@ async def display_file_options(callback: CallbackQuery, bot: Bot, state: FSMCont
     else:
         zodiac_sign = callback.data
 
-    filename = bot.files_dict[zodiac_sign]
+    filename = bot.files_dict[zodiac_sign]['path']
 
     if filename == 'none':
         keyboard = kb.get_callback_btns(btns={
@@ -200,7 +201,7 @@ async def display_file_options(callback: CallbackQuery, bot: Bot, state: FSMCont
 # Выводит текущий знак зодиака и прикрепленный к нему файл
 # Запускает ожидание документа
 @admin_router.callback_query(StateFilter(Admin.file_options), F.data == 'upload')
-async def send_file_by_name(callback: CallbackQuery, state: FSMContext):
+async def request_new_file(callback: CallbackQuery, state: FSMContext):
     state_data = await state.get_data()
     zodiac_sign = state_data['zodiac_sign']
 
@@ -228,13 +229,18 @@ async def doc_save(message: Message, state: FSMContext, bot: Bot):
         file_path = file.file_path
 
         new_filename = f'{zodiac_sign}.pdf'
-        destination = pathlib.Path(bot.data_path, new_filename)  # Создаем полный путь к новому файлу
+        destination = Path(bot.data_path, new_filename)  # Создаем полный путь к новому файлу
 
         if destination.exists():
             destination.unlink()
 
         await bot.download_file(file_path=file_path, destination=destination)
-        bot.files_dict[zodiac_sign] = destination
+        bot.files_dict[zodiac_sign]['path'] = str(destination)
+        bot.files_dict[zodiac_sign]['id'] = file_id
+
+        json_path = Path(bot.data_path, 'files.json')
+        with open(json_path, 'w') as file:
+            json.dump(bot.files_dict, file, indent=4,  ensure_ascii=False)
 
     except Exception as e:
         await message.reply(text=f'Ошибка загрузки файла: {e}, error: {traceback.format_exc()}')
@@ -248,11 +254,16 @@ async def doc_save(message: Message, state: FSMContext, bot: Bot):
 async def send_file_by_name(callback: CallbackQuery, bot: Bot, state: FSMContext):
     state_data = await state.get_data()
     zodiac_sign = state_data['zodiac_sign']
-    path = bot.files_dict[zodiac_sign]
-    file = FSInputFile(path)
+    file_id = bot.files_dict[zodiac_sign]['id']
+    file_path = bot.files_dict[zodiac_sign]['path']
 
-    await callback.answer(f'файл {path} отправлен')
-    await callback.message.answer_document(document=file)
+    if file_id:
+        await callback.answer(f'файл {file_path} отправлен по id')
+        await callback.message.answer_document(document=file_id)
+    else:
+        file = FSInputFile(file_path)
+        await callback.answer(f'файл {file_path} отправлен')
+        await callback.message.answer_document(document=file)
 
 
 # [/Change_file]
@@ -261,7 +272,7 @@ async def send_file_by_name(callback: CallbackQuery, bot: Bot, state: FSMContext
 
 #Кнопка назад для выхода из работы с файлами
 @admin_router.callback_query(StateFilter(Admin.zodiac_sign), F.data == 'back_btn')
-async def back_step_upload(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+async def back_step_files(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     await state.clear()
     await state.set_state(Admin.start)
     await callback.answer(text='')
