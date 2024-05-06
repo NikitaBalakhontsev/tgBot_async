@@ -42,7 +42,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext):
             invite_link = chat.invite_link
         else:
             invite_link = await bot.export_chat_invite_link(channel_id)
-        await message.answer(f'Рад, что смог заинтересовать вас, для начала работы подпишитесь на канал {invite_link}')
+        await message.answer(f"Рад, что смог заинтересовать вас, для начала работы подпишитесь на канал {invite_link}")
 
     else:
         await message.answer('Добрый день! Я ваш персональный астрологический помощник.',
@@ -60,7 +60,7 @@ async def display_zodiac_signs(callback: CallbackQuery, state: FSMContext):
     await callback.answer('')
 
     zodiac_btns = ZODIAC_BTNS.copy()
-    text = 'ㅤㅤㅤㅤВыбери знак зодиакаㅤㅤㅤ'
+    text = 'ㅤㅤㅤㅤВыберите знак зодиакаㅤㅤㅤ'
     reply_markup = kb.get_callback_btns(btns=zodiac_btns)
 
     if callback.data == 'zodiac_sign_change':
@@ -134,7 +134,7 @@ async def handle_valid_year(message: Message, state: FSMContext, bot: Bot):
         await confirm_data(message=message, state=state, bot=bot)
     else:
         age = datetime.now().year - year
-        await message.answer(text=f'Ваш возраст действительно {age} ?, отправьте новую дату')
+        await message.answer(text=f"Ваш возраст действительно {age} ?, отправьте новую дату")
 
 @user_private_router.message(StateFilter(Customer.year))
 async def display_years(message: Message):
@@ -144,11 +144,11 @@ async def display_years(message: Message):
 async def confirm_data(message: Message, state: FSMContext, bot: Bot, edit_text: bool = False):
     state_data = await state.get_data()
 
-    text = (f'Прогноз почти у вас, подтвердите данные \n'
-            f'Знак.ㅤㅤㅤㅤㅤㅤㅤ <b>{state_data['zodiac_sign']}</b> \n'
-            f'Полㅤㅤㅤㅤㅤㅤㅤㅤ<b>{state_data['gender']}</b> \n'
-            f'Год рождения_ㅤ ㅤ<b>{state_data['year']}</b> \n'
-            f'Сумма платежаㅤㅤ<b>{bot.price // 100}</b>')
+    text = (f"Прогноз почти у вас, подтвердите данные \n"
+            f"Знак.ㅤㅤㅤㅤㅤㅤㅤ <b>{state_data['zodiac_sign']}</b> \n"
+            f"Полㅤㅤㅤㅤㅤㅤㅤㅤ<b>{state_data['gender']}</b> \n"
+            f"Год рождения_ㅤ ㅤ<b>{state_data['year']}</b> \n"
+            f"Сумма платежаㅤㅤ<b>{bot.price // 100}</b>")
 
     reply_markup = kb.get_callback_btns(
         btns={
@@ -168,10 +168,10 @@ async def back_bth_confirm(callback: CallbackQuery, state: FSMContext):
 
     state_data = await state.get_data()
     await state.set_state(Customer.confirm)
-    await callback.message.edit_text(text=f'Чтобы изменить данные нажмите соответсвующую кнопку \n'
-                                          f'Знак.ㅤㅤㅤㅤㅤㅤㅤ <b>{state_data['zodiac_sign']}</b> \n'
-                                          f'Полㅤㅤㅤㅤㅤㅤㅤㅤ<b>{state_data['gender']}</b> \n'
-                                          f'Год рождения_ㅤ ㅤ<b>{state_data['year']}</b> \n'
+    await callback.message.edit_text(text=f"Чтобы изменить данные нажмите соответсвующую кнопку \n"
+                                          f"Знак.ㅤㅤㅤㅤㅤㅤㅤ <b>{state_data['zodiac_sign']}</b> \n"
+                                          f"Полㅤㅤㅤㅤㅤㅤㅤㅤ<b>{state_data['gender']}</b> \n"
+                                          f"Год рождения_ㅤ ㅤ<b>{state_data['year']}</b> \n"
                                      , reply_markup=kb.get_callback_btns(
             btns={
                 'Изменить знак зодиака': 'zodiac_sign_change',
@@ -212,11 +212,11 @@ async def order(callback: CallbackQuery, state: FSMContext, bot: Bot):
     else:
         await bot.send_invoice(callback.message.chat.id,
                                title='Прогноз',
-                               description=f'Ты узнаешь все о {zodiac_sign}',
+                               description=f"Ты узнаешь все о {zodiac_sign}",
                                payload='invoice',
                                provider_token=os.getenv('PAYMENT_TOKEN_TEST'),
                                currency='RUB',
-                               prices=[LabeledPrice(label=f'Прогноз {zodiac_sign}', amount=bot.price)],
+                               prices=[LabeledPrice(label=f"Прогноз {zodiac_sign}", amount=bot.price)],
                                provider_data=json.dumps({"capture": True})
                                )
 
@@ -236,22 +236,25 @@ async def successful_payment(message: Message, state: FSMContext, bot: Bot):
         await logging_successful_payment(message=message, state=state, is_real=False)
         await bot.send_document(chat_id=message.chat.id, document=file, protect_content=True)
         await message.answer(
-            text=f'Вы успешно воспользовались акцией. \n'
-            f'Оставайтесь с нами для получения новых прогнозов)\n'
-            f'(файл с подробным прогнозом прикреплен ниже)',
-            reply_markup=kb.get_callback_btns(btns={
-                'Получить новый прогноз': 'new_predict'
-            }))
+            text=f"Вы успешно воспользовались акцией. \n"
+                 f"Оставайтесь с нами для получения новых прогнозов\n"
+                 f"(файл с подробным прогнозом прикреплен выше)",
+            reply_markup=kb.get_callback_btns(
+                btns={
+                    'Получить новый прогноз': 'new_predict'
+                }))
 
     else:
         await logging_successful_payment(message=message, state=state)
         await bot.send_document(chat_id=message.chat.id, document=file, protect_content=True)
         await message.answer(
-            f'Опалата на сумму {message.successful_payment.total_amount // 100} прошла успешно\n'
-            f'Оставайтесь с нами для получения новых прогнозов)\n'
-            f'(файл с подробным прогнозом прикреплен ниже)', reply_markup=kb.get_callback_btns(btns={
-                'Получить новый прогноз': 'new_predict'
-            }))
+            text=f"Опалата на сумму {message.successful_payment.total_amount // 100} прошла успешно\n"
+                 f"Оставайтесь с нами для получения новых прогнозов)\n"
+                 f""f"(файл с подробным прогнозом прикреплен выше)",
+            reply_markup=kb.get_callback_btns(
+                btns={
+                    'Получить новый прогноз': 'new_predict'
+                }))
 
     await state.clear()
     await state.set_state(Customer.start)
