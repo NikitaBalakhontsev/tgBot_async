@@ -1,12 +1,13 @@
-from pathlib import Path
 import os
 import json
-from typing import Optional, Tuple
-
 from aiogram import Bot
 import logging
 
+from typing import Optional, Tuple, Union
+from pathlib import Path
 from aiogram.types import FSInputFile
+
+from bot.config import ZODIAC_SIGNS
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +17,11 @@ class FileSystem:
             self,
             bot: Bot,
             data_path: Path,
-            json_path: Path = None
     ) -> None:
 
         self.bot = bot
         self._set_data_path(data_path)
-        self._set_json_path(json_path)
+        self.json_path = Path("file_system.json")
         self._set_default_files()
         logger.info('Init file system')
 
@@ -31,17 +31,12 @@ class FileSystem:
         else:
             raise ValueError("param: 'data_path' does not exist or is not a directory")
 
-    def _set_json_path(self, json_path: Path) -> None:
-        if (json_path is None) or (json_path.is_file() is False):
-            self.json_path = Path(self.data_path, 'files.json')
-        else:
-            self.json_path = json_path
 
     def _set_default_files(self) -> None:
-        self.files = {sign['ru']: {
+        self.files = {sign: {
             'file_id': None,
             'path': None
-        } for sign in self.bot.zodiac_signs}
+        } for sign in ZODIAC_SIGNS}
 
     async def initial_state(self) -> None:
         """
@@ -55,11 +50,8 @@ class FileSystem:
         await self.load_local()
         self.save_to_json()
 
-        print(self.get_paths())
+        print(self.get_file_paths())
 
-    def json_file_exists(self) -> bool:
-        """Проверка существования JSON файла."""
-        return self.json_path.exists()
 
     async def load_json(self) -> None:
         """Загрузка данных из JSON файла."""
@@ -67,26 +59,26 @@ class FileSystem:
             if self.json_path.exists():
                 with open(self.json_path, 'r', encoding='utf-8') as file:
                     json_data = json.load(file)
+                await self._validate_dict(data=json_data)
         except Exception as e:
             print("Ошибка про загрузке JSON", e)
-        await self.validate_dict(data=json_data)
+
 
     async def load_local(self) -> None:
         """Загрузка данных из data/."""
         data_path = self.data_path
-        zodiac_signs = [data['ru'] for data in self.bot.zodiac_signs]
-        for zodiac_sign in zodiac_signs:
-            if self.files[zodiac_sign]['path'] is not None:
-                print(f"Локально найден знак зодиака {zodiac_sign}, повтор")
+        for sign in ZODIAC_SIGNS:
+            if self.files[sign]['path'] is not None:
+                print(f"Локально найден знак зодиака {sign}, повтор")
                 continue
 
-            path = Path(f'{data_path}/{zodiac_sign}.pdf')
+            path = Path(f'{data_path}/{sign}.pdf')
             if self.validate_path(path):
                 file_id = await self.get_new_file_id(path=path)
-                self.files[zodiac_sign] = {'file_id': file_id, 'path': str(path)}
-                print(f"Локально найден знак зодиака {zodiac_sign}, path: {path}, id: {file_id}")
+                self.files[sign] = {'file_id': file_id, 'path': str(path)}
+                print(f"Локально найден знак зодиака {sign}, path: {path}, id: {file_id}")
 
-    def custom_json_serializer(obj):
+    def _custom_json_serializer(obj):
         if obj is None:
             return 'null'
         return obj
@@ -94,9 +86,9 @@ class FileSystem:
     def save_to_json(self) -> None:
         """Сохранение данных в JSON файл."""
         with open(self.json_path, 'w', encoding='utf-8') as file:
-            json.dump(self.files, file, ensure_ascii=False, default=self.custom_json_serializer)
+            json.dump(self.files, file, ensure_ascii=False, default=self._custom_json_serializer)
 
-    async def validate_dict(self, data: dict) -> None:
+    async def _validate_dict(self, data: dict) -> None:
         """Проверка данных в файле."""
         for sign, data in data.items():
             file_id = data.get('file_id') if data.get('file_id') else None
@@ -134,7 +126,7 @@ class FileSystem:
                 print(f"Новый id для знака зодиака {sign}, Id: {file_id}")
 
         if (path is None) and file_id:
-            path = await self.get_new_path_by_file_id(file_id=file_id, sign=sign)
+            path = await self._get_new_path_by_file_id(file_id=file_id, sign=sign)
 
         return [bool(path), file_id, path]
 
@@ -171,7 +163,7 @@ class FileSystem:
             print(f"Ошибка при загрузке файла: {e}")
             return None
 
-    async def get_new_path_by_file_id(self, file_id: str, sign: str) -> Optional[Path]:
+    async def _get_new_path_by_file_id(self, file_id: str, sign: str) -> Optional[Path]:
         """Получает новый Path для удаленного файла"""
         try:
             file = await self.bot.get_file(file_id)
@@ -196,5 +188,33 @@ class FileSystem:
     def display_files(self):
         print(self.files)
 
-    def get_paths(self) -> [str]:
+    def get_file_paths(self) -> [str]:
         return [data['path'] for data in self.files.values() if data['path'] is not None]
+
+    def get_local_files(self) -> [str]:
+        return os.listdir(self.data_path)
+
+    def get_path(self, sign: str) -> Optional[str]:
+        return self.files.get(sign).get('path')
+
+    def get_file_id(self, sign: str) -> Optional[str]:
+        return self.files.get(sign).get('file_id')
+
+    def get_file(self, sign: str) -> Union[FSInputFile, str]:
+        file_id = self.get_file_id(sign)
+        if file_id:
+            return file_id
+        path = self.get_path(sign)
+        return FSInputFile(path)
+
+    async def add_file(self, sign: str, file_id: str) -> None:
+        destination = Path(self.data_path, f"{sign}.pdf")
+        try:
+            await self.bot.download(file=file_id, destination=destination)
+        except Exception as e:
+            raise ValueError(e)
+
+        self.files[sign]['file_id'] = file_id
+        self.files[sign]['path'] = str(destination)
+
+        self.save_to_json()
