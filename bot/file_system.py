@@ -26,11 +26,9 @@ class FileSystem:
         logger.info('Init file system')
 
     def _set_data_path(self, data_path: Path) -> None:
-        if os.path.isdir(data_path):
-            self.data_path = data_path
-        else:
-            raise ValueError("param: 'data_path' does not exist or is not a directory")
-
+        if not os.path.isdir(data_path):
+            os.makedirs(data_path)
+        self.data_path = data_path
 
     def _set_default_files(self) -> None:
         self.files = {sign: {
@@ -50,7 +48,7 @@ class FileSystem:
         await self.load_local()
         self.save_to_json()
 
-        print(self.get_file_paths())
+        logger.info(self.get_file_paths())
 
 
     async def load_json(self) -> None:
@@ -61,7 +59,7 @@ class FileSystem:
                     json_data = json.load(file)
                 await self._validate_dict(data=json_data)
         except Exception as e:
-            print("Ошибка про загрузке JSON", e)
+            logger.error("Ошибка про загрузке JSON", e)
 
 
     async def load_local(self) -> None:
@@ -69,14 +67,14 @@ class FileSystem:
         data_path = self.data_path
         for sign in ZODIAC_SIGNS:
             if self.files[sign]['path'] is not None:
-                print(f"Локально найден знак зодиака {sign}, повтор")
+                logger.info(f"Локально найден знак зодиака {sign}, повтор")
                 continue
 
             path = Path(f'{data_path}/{sign}.pdf')
             if self.validate_path(path):
                 file_id = await self.get_new_file_id(path=path)
                 self.files[sign] = {'file_id': file_id, 'path': str(path)}
-                print(f"Локально найден знак зодиака {sign}, path: {path}, id: {file_id}")
+                logger.info(f"Локально найден знак зодиака {sign}, path: {path}, id: {file_id}")
 
     def _custom_json_serializer(obj):
         if obj is None:
@@ -94,18 +92,18 @@ class FileSystem:
             file_id = data.get('file_id') if data.get('file_id') else None
             path = Path(data['path']) if data.get('path') else None
             if (file_id is None) and (path is None):
-                print(f"[SKIP] Validate. Sign: {sign}, Path: {path}, Id: {file_id}")
+                logger.info(f"[SKIP] Validate. Sign: {sign}, Path: {path}, Id: {file_id}")
                 continue
 
-            result, file_id, path = await self.validate(sign=sign, file_id=file_id, path=path)
+            file_id, path = await self.validate(sign=sign, file_id=file_id, path=path)
             self.files[sign]['file_id'] = file_id
-            self.files[sign]['path'] = str(path)
+            self.files[sign]['path'] = path
 
     async def validate(self,
                        sign: str,
                        file_id: Optional[str] = None,
                        path: Optional[Path] = None
-                       ) -> Tuple[bool, Optional[str], Optional[str]]:
+                       ) -> Tuple[Optional[str], Optional[str]]:
         """
        :param sign: Zodiac_sign, key for files dict
        :param file_id: Telegram id for file
@@ -114,21 +112,23 @@ class FileSystem:
         """
         data_path = self.data_path
 
-        print(f" Validate. Sign: {sign}, Path: {path}, Id: {file_id}")
+        logger.info(f" Validate. Sign: {sign}, Path: {path}, Id: {file_id}")
         if self.validate_path(path) is False:
-            print(f"Некорректный Path для знака зодиака {sign}, Path: {path}")
+            logger.info(f"Некорректный Path для знака зодиака {sign}, Path: {path}")
             path = self.get_new_path(data_path=data_path, sign=sign)
 
         if await self.validate_file_id(file_id) is False:
-            print(f"Некорректный Id для знака зодиака {sign}, Id: {file_id}")
+            logger.info(f"Некорректный Id для знака зодиака {sign}, Id: {file_id}")
             if path:
                 file_id = await self.get_new_file_id(path=path)
-                print(f"Новый id для знака зодиака {sign}, Id: {file_id}")
+                logger.info(f"Новый id для знака зодиака {sign}, Id: {file_id}")
 
         if (path is None) and file_id:
             path = await self._get_new_path_by_file_id(file_id=file_id, sign=sign)
 
-        return [bool(path), file_id, path]
+        if path:
+            path = str(path)
+        return [file_id, path]
 
     def validate_path(self, path: Path) -> bool:
         """Проверка существования файла по пути."""
@@ -145,7 +145,7 @@ class FileSystem:
             if file is None:
                 return False
         except Exception as e:
-            logger.info(f"Ошибка при получении файла с сервера Telegram: {e}")
+            logger.error(f"Ошибка при получении файла с сервера Telegram: {e}")
             return False
 
         return True
@@ -160,7 +160,7 @@ class FileSystem:
             return message.document.file_id
 
         except Exception as e:
-            print(f"Ошибка при загрузке файла: {e}")
+            logger.info(f"Ошибка при загрузке файла: {e}")
             return None
 
     async def _get_new_path_by_file_id(self, file_id: str, sign: str) -> Optional[Path]:
@@ -175,7 +175,7 @@ class FileSystem:
             return destination
 
         except Exception as e:
-            print(f"Ошибка при загрузке файла: {e}")
+            logger.error(f"Ошибка при загрузке файла: {e}")
             return None
 
     def get_new_path(self, data_path: Path, sign: str) -> Optional[Path]:

@@ -13,9 +13,9 @@ def setup_logging(config_path: str = 'logging_config.json', log_path: Path = Pat
     if not os.path.exists(log_path):
         os.mkdir(log_path)
 
-    error_path = Path(log_path, f'{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_errors.log')
-    info_path = Path(log_path, f'{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_info.log')
-    payment_path = Path(log_path, f'{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_payments.json')
+    error_path = Path(log_path, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_errors.log")
+    info_path = Path(log_path, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_info.log")
+    payment_path = Path(log_path, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_payments.json")
 
     config['handlers']['error_file_handler']['filename'] = error_path
     config['handlers']['info_file_handler']['filename'] = info_path
