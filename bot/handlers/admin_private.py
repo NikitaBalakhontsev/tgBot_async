@@ -30,9 +30,6 @@ class Admin(StatesGroup):
     path = None
 
 
-
-
-
 # Запуск панели администратора
 @admin_router.message(Command("admin"))
 async def admin_cmd(message: Message, state: FSMContext):
@@ -87,7 +84,7 @@ async def display_price_options(message: Message, bot: Bot, state: FSMContext):
 
     await state.clear()
     await state.set_state(Admin.price_options)
-    await message.answer(text=f'Текущая цена <b>[{current_price // 100}]</b>',
+    await message.answer(text=f"Текущая цена <b>[{current_price // 100}]</b>",
                          reply_markup=kb.get_callback_btns(btns={
                              'Заменить': 'change_price',
                              'Назад': 'back_btn'
@@ -114,8 +111,9 @@ async def request_price(callback: CallbackQuery, bot: Bot, state: FSMContext):
 
     await state.set_state(Admin.request_price)
     await callback.answer('')
-    await callback.message.edit_text(text=f'Текущая цена <b>[{current_price // 100}]</b> \n\n Отправьте в чат новую цену ('
-                                          f'целое,в рублях)', reply_markup=kb.get_callback_btns(btns={
+    await callback.message.edit_text(text=f"Текущая цена <b>[{current_price // 100}]</b> \n\n"
+                                          f"Отправьте в чат новую цену (целое,в рублях)",
+                                     reply_markup=kb.get_callback_btns(btns={
         'Назад': 'back_btn'
     }))
 
@@ -148,9 +146,7 @@ async def change_price(message: Message, bot: Bot, state: FSMContext):
 Выводит возможные действия с файлом
 Если файл не найден, выведет None без возможности скачать файл
 """
-@admin_router.callback_query(StateFilter(Admin.zodiac_sign), F.data.in_(
-    {'Овен', 'Телец', 'Близнецы', 'Рак', 'Лев', 'Дева', 'Весы', 'Скорпион', 'Стрелец',
-     'Козерог', 'Водолей', 'Рыбы'}))
+@admin_router.callback_query(StateFilter(Admin.zodiac_sign), F.data.in_(ZODIAC_BTNS.values()))
 async def display_file_options(callback: CallbackQuery, bot: Bot, state: FSMContext):
     await state.set_state(Admin.zodiac_sign)
 
@@ -177,7 +173,7 @@ async def display_file_options(callback: CallbackQuery, bot: Bot, state: FSMCont
     await state.update_data(zodiac_sign=zodiac_sign, path=path)
     await state.set_state(Admin.file_options)
     await callback.answer(text='')
-    await callback.message.edit_text(text=f'[{zodiac_sign}] Файл: <b> {path} </b>',
+    await callback.message.edit_text(text=f"[{zodiac_sign}] Файл: <b> {path} </b>",
                                      reply_markup=keyboard)
 
 """
@@ -186,7 +182,7 @@ async def display_file_options(callback: CallbackQuery, bot: Bot, state: FSMCont
 Запускает ожидание документа
 """
 @admin_router.callback_query(StateFilter(Admin.file_options), F.data == 'upload')
-async def request_new_file(callback: CallbackQuery, state: FSMContext, bot: Bot):
+async def request_new_file(callback: CallbackQuery, state: FSMContext):
     state_data = await state.get_data()
     zodiac_sign = state_data['zodiac_sign']
     path = state_data['path']
@@ -194,7 +190,8 @@ async def request_new_file(callback: CallbackQuery, state: FSMContext, bot: Bot)
     await state.set_state(Admin.upload_file)
     await callback.answer('')
     await callback.message.edit_text(
-        text=f'[{zodiac_sign}] Заменить файл:<b> {path} </b> \n\n Отправьте в чат новый файл',
+        text=f"[{zodiac_sign}] Заменить файл:<b> {path} </b> \n\n"
+             f"Отправьте в чат новый файл",
         reply_markup=kb.get_callback_btns(btns={
             'Назад': 'back_btn'
         }))
@@ -212,7 +209,7 @@ async def doc_save(message: Message, state: FSMContext, bot: Bot):
         zodiac_sign = state_data['zodiac_sign']
         file_id = message.document.file_id
         await bot.file_system.add_file(file_id=file_id, sign=zodiac_sign)
-        await message.reply(text=f'Файл {zodiac_sign} успешно добавлен')
+        await message.reply(text=f"Файл {zodiac_sign} успешно добавлен")
         await state.clear()
         await state.set_state(Admin.start)
 
@@ -221,9 +218,7 @@ async def doc_save(message: Message, state: FSMContext, bot: Bot):
         await message.answer(text=f"Отправьте новый файл для {zodiac_sign}")
 
 
-"""
-Отправляет документ, прикрепленный за выбранным знаком зодиака
-"""
+""" Отправляет документ, прикрепленный за выбранным знаком зодиака """
 @admin_router.callback_query(F.data == 'download')
 async def send_file_by_name(callback: CallbackQuery, bot: Bot, state: FSMContext):
     state_data = await state.get_data()
@@ -231,26 +226,21 @@ async def send_file_by_name(callback: CallbackQuery, bot: Bot, state: FSMContext
     path = state_data['path']
     file = bot.file_system.get_file(zodiac_sign)
 
-    await callback.answer(f'файл {path} отправлен')
+    await callback.answer(f"файл {path} отправлен")
     await callback.message.answer_document(document=file)
-
 
 
 """ [Back_button] Кнопка назад в различных сценариях"""
 
-"""
-Кнопка назад для выхода из работы с файлами
-"""
+""" Кнопка назад для выхода из работы с файлами """
 @admin_router.callback_query(StateFilter(Admin.zodiac_sign), F.data == 'back_btn')
 async def back_step_files(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     await state.clear()
     await state.set_state(Admin.start)
     await callback.answer(text='')
-    await callback.message.edit_text(text=f'Изменение файлов <b>[Отмена]</b>')
+    await callback.message.edit_text(text=f"Изменение файлов <b>[Отмена]</b>")
 
-"""
-Кнопка назад после выбора знака зодиака. Запускает выбор знака зодиака заново.
-"""
+""" Кнопка назад после выбора знака зодиака. Запускает выбор знака зодиака заново """
 @admin_router.callback_query(StateFilter(Admin.file_options), F.data == 'back_btn')
 async def back_step_file_options(callback: CallbackQuery, state: FSMContext) -> None:
     zodiac_btns = ZODIAC_BTNS.copy()
@@ -262,23 +252,18 @@ async def back_step_file_options(callback: CallbackQuery, state: FSMContext) -> 
     await callback.message.edit_text(text='Выбери знак зодиака',
                                      reply_markup=kb.get_callback_btns(btns=zodiac_btns))
 
-"""
-Кнопка назад при замене файла. Запускает выбор действий с файлов заново
-"""
+""" Кнопка назад при замене файла. Запускает выбор действий с файлов заново """
 @admin_router.callback_query(StateFilter(Admin.upload_file), F.data == 'back_btn')
 async def back_step_upload(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     await state.set_state(Admin.zodiac_sign)
     await callback.answer(text='')
     await display_file_options(callback=callback, bot=bot, state=state)
 
-"""
-Кнопка назад при изменении цены. Завершает сценарий "выбор цены" оставляет сообщение с текущей ценой
-"""
+""" Кнопка назад при изменении цены. Завершает сценарий "выбор цены" оставляет сообщение с текущей ценой """
 @admin_router.callback_query(StateFilter(Admin.price_options, Admin.request_price), F.data == 'back_btn')
 async def back_step_change_price(callback: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     current_price = bot.price
     await state.clear()
     await state.set_state(Admin.start)
     await callback.answer(text='')
-    await callback.message.edit_text(text=f'Текущая цена <b>[{current_price}]</b>')
-
+    await callback.message.edit_text(text=f"Текущая цена <b>[{current_price}]</b>")
