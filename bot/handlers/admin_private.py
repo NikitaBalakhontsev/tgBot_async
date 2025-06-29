@@ -66,6 +66,13 @@ async def display_zodiac_signs(message: Message, state: FSMContext):
 @admin_router.message(StateFilter("*"), F.text.casefold() == "список файлов")
 async def display_files(message: Message, bot: Bot, state: FSMContext):
     file_paths = bot.file_system.get_file_paths()
+
+    if not file_paths:
+        await state.clear()
+        await state.set_state(Admin.start)
+        await message.answer("Файлы не найдены.")
+        return
+
     filenames = [path.split('\\')[-1] for path in file_paths]
     used_files = as_marked_section("Используемые файлы", *filenames, marker='✅')
 

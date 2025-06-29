@@ -3,7 +3,6 @@ import logging.config
 import os
 
 from aiogram import Dispatcher
-from aiogram.enums import ParseMode
 from bot.extended_bot import ExtendedBot
 
 from dotenv import load_dotenv, find_dotenv
@@ -15,7 +14,7 @@ from bot.handlers.channel import channel_router
 from logging_setup import setup_logging
 
 """ExtendedBot  наследуется от Aiogram Bot, с добавлением атрибутов file_system, admins_list, price"""
-bot = ExtendedBot(os.getenv("BOT_TOKEN"), parse_mode=ParseMode.HTML)
+bot = ExtendedBot(os.getenv("BOT_TOKEN"))
 
 dp = Dispatcher()
 dp.include_routers(channel_router,
