@@ -1,6 +1,10 @@
 import os
+from typing import Optional
+
 from aiogram import Bot as AiogramBot
-from bot.file_system import FileSystem
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from bot.utils.file_system import FileSystem
 from bot.config import data_path
 
 
@@ -17,5 +21,6 @@ class ExtendedBot(AiogramBot):
         super().__init__(token, *args, **kwargs)
         self.file_system = FileSystem(bot=self, data_path=data_path)
         self.admins_list = [int(os.getenv('DEVELOPER_ID'))]
-        self.price = 0
+        self.price = 10
+        self.scheduler: Optional[AsyncIOScheduler] = None
 
