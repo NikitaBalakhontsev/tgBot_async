@@ -3,10 +3,26 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, date
 from bot.handlers.user_private import send_forecast_message
 from bot.utils.json_store import load_user_data
+from bot.config import ADMINS
 
 async def send_daily_forecasts(bot):
+    job = bot.scheduler.get_job("daily_forecast_job")
     user_data = load_user_data()
     today_str = date.today().isoformat()
+
+    file = bot.file_system.get_file(sign="general_queue", kind="0")
+    if not file:
+        job.pause()
+        logging.warning("Очередь общего гороскопа пуста. Рассылка остановлена.")
+        try:
+            for admin in ADMINS:
+                await bot.send_message(
+                    chat_id=admin,
+                    text="⛔ Очередь общего гороскопа пуста. Рассылка не выполнена."
+                )
+        except Exception as e:
+            logging.error(f"Не удалось отправить сообщение админу: {e}")
+        return
 
     for user_id, data in user_data.items():
         first_date = data.get("first_forecast_date")
@@ -21,6 +37,8 @@ async def send_daily_forecasts(bot):
             logging.info(f"Гороскоп отправлен пользователю {user_id} ({zodiac})")
         except Exception as e:
             logging.warning(f"Не удалось отправить гороскоп {user_id} ({zodiac}): {e}")
+
+    bot.file_system.shift_general_queue()
 
 def setup_scheduler(bot):
     scheduler = AsyncIOScheduler()

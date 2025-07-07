@@ -5,3 +5,5 @@ ZODIAC_SIGNS = ['Овен', 'Телец', 'Близнецы', 'Рак', 'Лев'
 
 
 ZODIAC_BTNS = {sign: sign for sign in ZODIAC_SIGNS}
+
+ADMINS = ["1054042861"]

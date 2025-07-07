@@ -383,7 +383,7 @@ async def wait_feeling(message: Message, state: FSMContext):
 
 
 async def send_forecast_message(user_id: int, zodiac_sign: str, bot: Bot, as_reply: bool = False):
-    file = bot.file_system.get_file(zodiac_sign, kind="general")
+    file = bot.file_system.get_file(sign="general_queue")
 
     if not file:
         logging.error(f"{user_id}: Не найден файл для знака {zodiac_sign}")
