@@ -14,7 +14,7 @@ from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery
     InlineKeyboardButton
 
 import bot.keyboards as kb
-from bot.config import ZODIAC_BTNS
+from bot.config import ZODIAC_BTNS, ADMINS
 from bot.utils.json_store import save_user_data, load_user_data
 
 user_private_router = Router()
@@ -44,11 +44,18 @@ class Customer(StatesGroup):
 async def cmd_start(message: Message, bot: Bot, state: FSMContext):
     await state.clear()
 
-    user_id = str(message.chat.id)
+    user_id = message.from_user.id
     user_data = load_user_data()
-    # if user_data.get(user_id, {}).get("first_forecast_date"):
-    #     await message.answer("🔁 Сеанс уже был начат ранее. Ожидай новый прогноз в ближайшее время.")
-    #     return
+    if user_data.get(str(user_id), {}).get("first_forecast_date"):
+        await message.answer("Вернемся с новым прогнозом в ближайшее время.")
+        return
+
+    data = {
+        "first_name": message.from_user.first_name or "",
+        "last_name": message.from_user.last_name or "",
+        "username": message.from_user.username or ""
+    }
+    await save_user_data(user_id, data)
 
     await message.answer("<b>Связь установлена...</b>", parse_mode="HTML")
 
@@ -67,6 +74,7 @@ async def cmd_start(message: Message, bot: Bot, state: FSMContext):
     )
 
     await state.set_state(Customer.ask_gender)
+
     await display_genders(message=message, state=state)
 
 # @user_private_router.callback_query(StateFilter(Customer.start), F.data == 'predict')
@@ -209,6 +217,13 @@ async def handle_birthdate(message: Message, state: FSMContext, bot: Bot):
         f"Твой знак зодиака: <b>{sign}</b>",
         parse_mode="HTML"
     )
+
+    today_str = date.today().isoformat()
+    await state.update_data(first_forecast_date=today_str)
+
+    # Обновляем JSON-данные
+    data = await state.get_data()
+    await save_user_data(message.from_user.id, data)
 
     await state.set_state(Customer.ask_feeling)
     await ask_feeling(message=message, state=state)
@@ -383,33 +398,33 @@ async def wait_feeling(message: Message, state: FSMContext):
 
 
 async def send_forecast_message(user_id: int, zodiac_sign: str, bot: Bot, as_reply: bool = False):
-    file = bot.file_system.get_file(sign="general_queue")
+    image_data = bot.file_system.get_image(sign="general_queue")
 
-    if not file:
-        logging.error(f"{user_id}: Не найден файл для знака {zodiac_sign}")
+    if not image_data:
+        logging.error(f"{user_id}: Не найден файл очереди для {zodiac_sign}")
+        await bot.send_message("Упс... Послание от звезд пока не готово. Пожалуйста, загляни позже — как только оно появится, я сразу поделюсь.")
+        await notify_admins_about_user(bot=bot, user_id=user_id, text=f"⚠️ Не найден общий гороскоп для нового пользователя.")
         return
 
-    try:
-        await bot.send_document(chat_id=user_id, document=file, protect_content=True)
+    image, text = image_data
+    caption_intro = (
+        "Привет!\nНаступил новый день, а значит время новых открытий! 🌅\n\n"
+        if not as_reply else ""
+    )
+    caption = f"{caption_intro}{text or 'Твой гороскоп на сегодня 🪐'}"
 
-        if as_reply:
-            await bot.send_message(
-                chat_id=user_id,
-                text="Твой гороскоп на сегодня 🪐\n(файл прикреплён выше)",
-                reply_markup=kb.get_callback_btns(
-                    btns={'Получить подробный прогноз': 'pay_forecast'}
-                )
-            )
-        else:
-            await bot.send_message(
-                chat_id=user_id,
-                text="Привет!\nНаступил новый день, а значит время новый открытий! \nТвой гороскоп на сегодня 🪐\n(файл прикреплён выше)",
-                reply_markup=kb.get_callback_btns(
-                    btns={'Получить подробный прогноз': 'pay_forecast'}
-                )
-            )
+    try:
+        await bot.send_photo(
+            chat_id=user_id,
+            photo=image,
+            caption=caption,
+            reply_markup=kb.get_callback_btns(
+                btns={'Получить подробный прогноз': 'pay_forecast'}
+            ),
+            protect_content=True
+        )
     except Exception as e:
-        logging.error(f"Ошибка при отправке гороскопа пользователю {user_id}: {e}", exc_info=True)
+        logging.error(f"Ошибка отправки гороскопа пользователю {user_id}: {e}")
 
 
 payments_router = Router()
@@ -449,47 +464,46 @@ async def successful_payment(message: Message, state: FSMContext, bot: Bot):
         user_data = load_user_data().get(str(user_id))
         zodiac_sign = user_data.get("zodiac_sign") if user_data else None
     except Exception:
-        await bot.send_message(
-            1054042861,  # ID администратора
-            f"⚠️ Не удалось определить знак зодиака для пользователя {user_id} после оплаты."
-        )
-        await message.answer(
-            "Произошла ошибка при обработке вашего заказа. Мы уже работаем над этим.")
-        return
+        pass
 
     # Если знак зодиака так и не найден
     if not zodiac_sign:
-        await bot.send_message(
-            1054042861,  # ID администратора
-            f"⚠️ Не удалось определить знак зодиака для пользователя {user_id} после оплаты."
-        )
-        await message.answer(
-            "Произошла ошибка при обработке вашего заказа. Мы уже работаем над этим.")
+        await message.answer("Произошла ошибка при обработке вашего заказа. Мы уже работаем над этим.")
+        await notify_admins_about_user(bot=bot, user_id=user_id, text=f"⚠️ Не удалось определить знак зодиака для отправки подробного гороскопа.")
         return
 
     # Попытка отправки файла
     try:
-        file = bot.file_system.get_file(zodiac_sign, kind="detailed")
-        if not file:
-            raise ValueError(f"Файл не найден для знака зодиака: {zodiac_sign}")
-
-        await bot.send_document(chat_id=user_id, document=file, protect_content=True)
+        # Сначала подтверждаем оплату
         await message.answer(
             text=(
                 "✨ Оплата прошла успешно!\n"
-                "Твой <b>подробный персональный гороскоп</b> прикреплён выше.\n\n"
-                "Возвращайся завтра за новым посланием от звёзд 🌌"
-            )
+                "Сейчас я пришлю твой <b>подробный персональный гороскоп</b> 🪐"
+            ),
+            parse_mode="HTML"
         )
+
+        # Загружаем изображение и подпись
+        image_data = bot.file_system.get_image(sign=zodiac_sign, kind="detailed")
+        if not image_data:
+            raise ValueError(f"Файл не найден для знака зодиака: {zodiac_sign}")
+
+        image, caption = image_data
+        caption = caption or f"Подробный прогноз для {zodiac_sign}"
+
+        # Отправляем сам гороскоп
+        await bot.send_photo(
+            chat_id=user_id,
+            photo=image,
+            caption=caption,
+            protect_content=True
+        )
+        await notify_admins_about_user(bot=bot, user_id=user_id, text=f"✅ Успешно отправлен подробный гороскоп.")
+
+
     except Exception as e:
-        await bot.send_message(
-            1054042861,
-            f"⚠️ Не удалось отправить файл гороскопа для пользователя {user_id} ({zodiac_sign}).\nОшибка: {e}"
-        )
-        await message.answer("Произошла ошибка при отправке файла. Мы скоро с вами свяжемся.")
-
-
-
+        await message.answer("Произошла ошибка при отправке гороскопа. С вами скоро свяжется менеджер.")
+        await notify_admins_about_user(bot=bot, user_id=user_id, text=f"⚠️ Не удалось отправить файл гороскопа().\nОшибка: {e}")
 
 
 # async def logging_successful_payment(message: Message, state: FSMContext, is_real=True) -> None:
@@ -519,3 +533,46 @@ async def successful_payment(message: Message, state: FSMContext, bot: Bot):
 #         }
 #
 #     payment_loger.log(15, json.dumps(log_payment_data, ensure_ascii=False))
+
+
+async def notify_admins_about_user(bot: Bot, text: str, user_id: int, parse_mode: str = "HTML"):
+
+    user_data = load_user_data().get(str(user_id))
+    if not user_data:
+        user_info = f"👤 <code>{user_id}</code> — <i>данные пользователя не найдены</i>"
+        zodiac_part = ""
+    else:
+        first_name = user_data.get("first_name", "")
+        last_name = user_data.get("last_name", "")
+        username = user_data.get("username")
+        zodiac_sign = user_data.get("zodiac_sign", "не указан")
+
+        full_name = " ".join(part for part in [first_name, last_name] if part).strip()
+        username_display = f"@{username}" if username else ""
+        parts = [f"<code>{user_id}</code>"]
+        if full_name:
+            parts.append(full_name)
+        if username_display:
+            parts.append(username_display)
+
+        user_info = "👤 " + " — ".join(parts)
+        zodiac_part = f"\n♈ Знак зодиака: <b>{zodiac_sign}</b>"
+
+    message = f"{user_info}{zodiac_part}\n\n{text}"
+
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(
+                chat_id=admin_id,
+                text=message,
+                parse_mode=parse_mode
+            )
+        except Exception:
+            pass
+
+async def notify_admins_general(bot: Bot, text: str, parse_mode: str = "HTML"):
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(chat_id=admin_id, text=text, parse_mode=parse_mode)
+        except Exception:
+            pass

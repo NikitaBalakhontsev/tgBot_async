@@ -1,7 +1,7 @@
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, date
-from bot.handlers.user_private import send_forecast_message
+from bot.handlers.user_private import send_forecast_message, notify_admins_general
 from bot.utils.json_store import load_user_data
 from bot.config import ADMINS
 
@@ -10,18 +10,11 @@ async def send_daily_forecasts(bot):
     user_data = load_user_data()
     today_str = date.today().isoformat()
 
-    file = bot.file_system.get_file(sign="general_queue", kind="0")
+    file = bot.file_system.get_image(sign="general_queue", kind="0")
     if not file:
         job.pause()
         logging.warning("Очередь общего гороскопа пуста. Рассылка остановлена.")
-        try:
-            for admin in ADMINS:
-                await bot.send_message(
-                    chat_id=admin,
-                    text="⛔ Очередь общего гороскопа пуста. Рассылка не выполнена."
-                )
-        except Exception as e:
-            logging.error(f"Не удалось отправить сообщение админу: {e}")
+        await notify_admins_general(bot=bot, text=f"⚠️ В очереди нет общего гороскопа. Рассылка остановлена.")
         return
 
     for user_id, data in user_data.items():
@@ -38,7 +31,16 @@ async def send_daily_forecasts(bot):
         except Exception as e:
             logging.warning(f"Не удалось отправить гороскоп {user_id} ({zodiac}): {e}")
 
+    await notify_admins_general(bot=bot,
+                                text=f"✅ Рассылка завершена.")
     bot.file_system.shift_general_queue()
+
+    file = bot.file_system.get_image(sign="general_queue", kind="0")
+    if not file:
+        job.pause()
+        logging.warning("Очередь общего гороскопа пуста. Рассылка остановлена.")
+        await notify_admins_general(bot=bot, text=f"⚠️ После успешной рассылки в очереди нет общего гороскопа. Следующая рассылка остановлена.")
+
 
 def setup_scheduler(bot):
     scheduler = AsyncIOScheduler()

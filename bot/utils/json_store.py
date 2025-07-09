@@ -12,9 +12,16 @@ def load_user_data() -> dict:
                 return json.load(f)
         return {}
 
-async def save_user_data(user_id: int, data: dict):
+async def save_user_data(user_id: int, new_data: dict):
     async with _user_data_lock:
         all_data = load_user_data()
-        all_data[str(user_id)] = data
+        user_id = str(user_id)
+
+        # Объединяем старые и новые данные
+        existing_data = all_data.get(user_id, {})
+        existing_data.update(new_data)
+
+        all_data[user_id] = existing_data
+
         with USER_DATA_FILE.open("w", encoding="utf-8") as f:
             json.dump(all_data, f, ensure_ascii=False, indent=2)

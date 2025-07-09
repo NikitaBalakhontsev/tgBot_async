@@ -5,16 +5,22 @@ from pathlib import Path
 from typing import Optional
 
 from aiogram import F, Router, Bot
-from aiogram.filters import Command, StateFilter, CommandObject
+from aiogram.filters import Command, StateFilter, CommandObject, BaseFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove, FSInputFile
 from aiogram.utils.formatting import as_marked_section
 
 import bot.keyboards as kb
-from bot.filters import ChatTypeFilter, IsAdmin
-from bot.config import ZODIAC_BTNS, ZODIAC_SIGNS
+from bot.filters import ChatTypeFilter
+from bot.config import ZODIAC_BTNS, ZODIAC_SIGNS, ADMINS
 from bot.utils.forecast import send_daily_forecasts, update_scheduler_time
+
+class IsAdmin(BaseFilter):
+    async def __call__(self, message: Message) -> bool:
+        return str(message.from_user.id) in ADMINS
+
+
 
 """
 Используем отдельный роутер для управления диалогом с администратором.
@@ -22,6 +28,7 @@ from bot.utils.forecast import send_daily_forecasts, update_scheduler_time
 """
 admin_router = Router()
 admin_router.message.filter(ChatTypeFilter(["private"]), IsAdmin())
+
 
 
 # Состояния для работы администратора
@@ -46,8 +53,8 @@ class Admin(StatesGroup):
 @admin_router.message(Command("admin"))
 async def admin_cmd(message: Message, state: FSMContext):
     await message.answer(text="Запущена панель администратора", reply_markup=kb.get_reply_btns(
-        "Изменить файлы",
-        "Список файлов",
+        "Изменить гороскопы",
+        "Список гороскопов",
         "Управлять рассылкой",
         "Изменить цену",
         "Закрыть панель администратора",
@@ -59,14 +66,14 @@ async def admin_cmd(message: Message, state: FSMContext):
 
 
 # Выбор знака зодиака для работы с файлами
-@admin_router.message(StateFilter("*"), F.text.casefold() == "изменить файлы")
+@admin_router.message(StateFilter("*"), F.text.casefold() == "изменить гороскопы")
 async def display_zodiac_signs(message: Message, state: FSMContext):
     await state.clear()
     await state.set_state(Admin.zodiac_sign)
 
     zodiac_btns = {"Общий гороскоп": "general_queue"}
     zodiac_btns.update(ZODIAC_BTNS)
-    zodiac_btns['Назад'] = 'back_btn'
+    zodiac_btns['⬅️ Назад'] = 'back_btn'
 
     await message.answer("Выбери знак зодиака:", reply_markup=kb.get_callback_btns(btns=zodiac_btns, sizes=(1, 2, 2, 2, 2, 2, 2, 1)))
 
@@ -104,7 +111,7 @@ async def _display_general_queue_menu(chat_id: int, bot: Bot, state: FSMContext,
     await state.set_state(Admin.general_queue_menu)
 
     if not files:
-        text = "Очередь пуста. Вы можете добавить новый файл."
+        text = "Очередь пуста. Вы можете добавить новый гороскоп."
     else:
         text = "<b>Очередь общих гороскопов:</b>\n\n"
         for idx, entry in enumerate(files):
@@ -117,18 +124,19 @@ async def _display_general_queue_menu(chat_id: int, bot: Bot, state: FSMContext,
         if entry.get("file_id") or entry.get("path"):
             buttons[f"{i + 1}"] = f"general_queue_{i}"
     if len(files) < 7:
-        buttons["➕ Добавить файл"] = "add_general_queue"
+        buttons["➕ Добавить гороскоп"] = "add_general_queue"
     buttons["⬅️ Назад"] = "back_btn"
 
     await send_method(chat_id, text, reply_markup=kb.get_callback_btns(btns=buttons, sizes=(3, 3, 1)), parse_mode="HTML")
 
 
 
-@admin_router.message(StateFilter(Admin.upload_file), F.document)
+@admin_router.message(StateFilter(Admin.upload_file), F.photo)
 async def handle_upload(message: Message, state: FSMContext, bot: Bot):
     try:
         data = await state.get_data()
-        file_id = message.document.file_id
+        file_id = message.photo[-1].file_id
+        text = message.caption or ""
         file_source_type = data.get("file_source_type")
 
         # Логика добавления в очередь или замены в очереди
@@ -137,28 +145,28 @@ async def handle_upload(message: Message, state: FSMContext, bot: Bot):
 
             # ЗАМЕНА файла в очереди
             if queue_index is not None:
-                error = await bot.file_system.replace_general_file(index=queue_index, file_id=file_id)
+                error = await bot.file_system.replace_general_file(index=queue_index, image_id=file_id, text=text)
                 if error:
-                    await message.answer(f"Ошибка при замене файла в очереди: {error}")
+                    await message.answer(f"Ошибка при замене гороскопа в очереди: {error}")
                 else:
-                    await message.answer(f"Файл очереди №{queue_index + 1} успешно обновлён.")
+                    await message.answer(f"Гороскоп очереди №{queue_index + 1} успешно обновлён.")
             else:
                 # ДОБАВЛЕНИЕ нового файла в очередь
                 current_length = len(bot.file_system.files["general_queue"]) + 1
                 if current_length > 7:
                     await message.answer(
-                        "⚠️ Очередь заполнена (максимум 7 файлов). Удалите или замените существующий файл.")
+                        "⚠️ Очередь заполнена (максимум 7 Гороскопов).")
                     return
 
                 error = await bot.file_system.add_file(
                     sign="general_queue",
-                    file_id=file_id,
-                    kind=current_length  # Индекс следующего свободного места
+                    image_id=file_id,
+                    text=text
                 )
                 if error:
-                    await message.answer(f"Ошибка при добавлении файла в очередь: {error}")
+                    await message.answer(f"Ошибка при добавлении гороскопа в очередь: {error}")
                 else:
-                    await message.answer(f"Файл успешно добавлен в очередь под номером {current_length}.")
+                    await message.answer(f"Гороскоп успешно добавлен в очередь под номером {current_length}.")
             await display_general_queue_menu_msg(message=message, bot=bot, state=state)
             return
 
@@ -169,14 +177,13 @@ async def handle_upload(message: Message, state: FSMContext, bot: Bot):
             await message.answer("Ошибка: знак зодиака не указан.")
             return
 
-        error = await bot.file_system.add_file(sign=zodiac_sign, file_id=file_id, kind=kind)
+        error = await bot.file_system.add_file(sign=zodiac_sign, image_id=file_id, kind=kind, text=text)
         if error:
-            await message.answer(f"Ошибка при сохранении файла: {error}")
+            await message.answer(f"Ошибка при сохранении гороскопа: {error}")
         else:
-            await message.answer(f"Файл '{kind}' для {zodiac_sign} успешно обновлён.")
-
+            await message.answer(f"Гороскоп '{kind}' для {zodiac_sign} успешно обновлён.")
         # Вернуться в меню работы с файлом
-        # await display_file_options(message, bot, state, zodiac_sign)
+        await display_file_options(message, bot, state, "zodiac", sign=zodiac_sign)
 
     except Exception as e:
         await message.answer(f"Ошибка: {e}")
@@ -188,7 +195,7 @@ async def add_new_file_to_queue(callback: CallbackQuery, state: FSMContext):
     await state.update_data(file_source_type="general_queue")
 
     await callback.message.edit_text(
-        text="Отправьте новый файл для добавления в очередь общих гороскопов:",
+        text="Отправьте фотографию и подпись к ней в обдном сообщении (перетащите сюда изображение для быстрой отправки) ",
         reply_markup=kb.get_callback_btns(btns={
             'Назад': 'back_btn'
         })
@@ -205,8 +212,8 @@ async def cancel_upload_and_back(callback: CallbackQuery, state: FSMContext, bot
 
     if file_source_type == "general_queue":
         await display_general_queue_menu_callback(callback.message, bot, state)
-    # else:
-    #     await display_file_options(callback.message, bot, state, data.get("zodiac_sign"))
+    else:
+         await display_file_options(callback.message, bot, state, "zodiac_sign", sign=data.get("zodiac_sign"))
 
 
 @admin_router.callback_query(StateFilter(Admin.general_queue_menu), F.data.startswith("general_queue_"))
@@ -227,7 +234,77 @@ async def edit_file_in_queue(callback: CallbackQuery, state: FSMContext, bot: Bo
     await callback.answer()
 
 
-async def display_file_options(message: Message, bot: Bot, state: FSMContext, source_type: str, sign: Optional[str] = None, queue_index: Optional[int] = None):
+# async def display_file_options(message: Message, bot: Bot, state: FSMContext, source_type: str, sign: Optional[str] = None, queue_index: Optional[int] = None):
+#     """
+#     Универсальное меню работы с файлом: показать информацию и действия (скачать, заменить).
+#     :param message: объект сообщения
+#     :param bot: бот
+#     :param state: FSMContext
+#     :param source_type: "general_queue" или "zodiac"
+#     :param sign: название знака (если zodiac)
+#     :param queue_index: индекс очереди (если general_queue)
+#     """
+#     # Определим описание источника
+#     if source_type == "zodiac":
+#         if not sign:
+#             await message.answer("Ошибка: не указан знак зодиака.")
+#             return
+#         path = bot.file_system.get_path(sign, kind="detailed")
+#         filename = os.path.basename(path) if path else "—"
+#         date = bot.file_system.get_upload_date(sign, kind="detailed") or "—"
+#         label = f"[{sign}] Подробный гороскоп"
+#         state_data = {"file_source_type": "zodiac", "zodiac_sign": sign}
+#         download_callback = "download_file_zodiac"
+#         replace_callback = "replace_file_zodiac"
+#
+#     elif source_type == "general_queue":
+#         if queue_index is None:
+#             await message.answer("Ошибка: не указан индекс гороскопа очереди.")
+#             return
+#         path = bot.file_system.get_path("general_queue", kind=queue_index)
+#         filename = os.path.basename(path) if path else "—"
+#         date = bot.file_system.get_upload_date("general_queue", kind=queue_index) or "—"
+#         label = f"Гороскоп №{queue_index + 1} из очереди общего гороскопа"
+#         state_data = {"file_source_type": "general_queue", "queue_index": queue_index}
+#         download_callback = f"download_general_queue_{queue_index}"
+#         replace_callback = f"replace_general_queue_{queue_index}"
+#
+#     else:
+#         await message.answer("Ошибка: неизвестный тип источника гороскопа.")
+#         return
+#
+#     # Сохраняем данные в состояние
+#     await state.set_state(Admin.file_options)
+#     await state.update_data(**state_data)
+#
+#     # Формируем текст
+#     text = (
+#         f"<b>{label}</b>\n"
+#         f"Файл: <code>{filename}</code>\n"
+#         f"Дата загрузки: {date}"
+#     )
+#
+#     # Кнопки
+#     buttons = {
+#         "📥 Скачать": download_callback,
+#         "♻ Заменить": replace_callback,
+#         "⬅️ Назад": "back_btn"
+#     }
+#
+#     await message.answer(
+#         text=text,
+#         reply_markup=kb.get_callback_btns(btns=buttons, sizes=(2, 1)),
+#         parse_mode="HTML"
+#     )
+
+async def display_file_options(
+    message: Message,
+    bot: Bot,
+    state: FSMContext,
+    source_type: str,
+    sign: Optional[str] = None,
+    queue_index: Optional[int] = None
+):
     """
     Универсальное меню работы с файлом: показать информацию и действия (скачать, заменить).
     :param message: объект сообщения
@@ -237,14 +314,18 @@ async def display_file_options(message: Message, bot: Bot, state: FSMContext, so
     :param sign: название знака (если zodiac)
     :param queue_index: индекс очереди (если general_queue)
     """
-    # Определим описание источника
     if source_type == "zodiac":
         if not sign:
             await message.answer("Ошибка: не указан знак зодиака.")
             return
+
         path = bot.file_system.get_path(sign, kind="detailed")
         filename = os.path.basename(path) if path else "—"
         date = bot.file_system.get_upload_date(sign, kind="detailed") or "—"
+
+        image_data = bot.file_system.get_image(sign, kind="detailed")
+        text = image_data[1] if image_data else ""
+
         label = f"[{sign}] Подробный гороскоп"
         state_data = {"file_source_type": "zodiac", "zodiac_sign": sign}
         download_callback = "download_file_zodiac"
@@ -252,29 +333,40 @@ async def display_file_options(message: Message, bot: Bot, state: FSMContext, so
 
     elif source_type == "general_queue":
         if queue_index is None:
-            await message.answer("Ошибка: не указан индекс файла очереди.")
+            await message.answer("Ошибка: не указан индекс гороскопа очереди.")
             return
+
         path = bot.file_system.get_path("general_queue", kind=queue_index)
         filename = os.path.basename(path) if path else "—"
         date = bot.file_system.get_upload_date("general_queue", kind=queue_index) or "—"
-        label = f"Файл №{queue_index + 1} из очереди общего гороскопа"
+
+        image_data = bot.file_system.get_image("general_queue", kind=queue_index)
+        text = image_data[1] if image_data else ""
+
+        label = f"Гороскоп №{queue_index + 1} из очереди общего гороскопа"
         state_data = {"file_source_type": "general_queue", "queue_index": queue_index}
         download_callback = f"download_general_queue_{queue_index}"
         replace_callback = f"replace_general_queue_{queue_index}"
 
     else:
-        await message.answer("Ошибка: неизвестный тип источника файла.")
+        await message.answer("Ошибка: неизвестный тип источника гороскопа.")
         return
 
-    # Сохраняем данные в состояние
+    # Краткое описание текста
+    if text:
+        short_text = text[:100] + "..." if len(text) > 100 else text
+    else:
+        short_text = "—"
+
     await state.set_state(Admin.file_options)
     await state.update_data(**state_data)
 
-    # Формируем текст
-    text = (
+    # Текст сообщения
+    text_msg = (
         f"<b>{label}</b>\n"
         f"Файл: <code>{filename}</code>\n"
-        f"Дата загрузки: {date}"
+        f"Дата загрузки: {date}\n"
+        f"Описание: {short_text}"
     )
 
     # Кнопки
@@ -285,11 +377,10 @@ async def display_file_options(message: Message, bot: Bot, state: FSMContext, so
     }
 
     await message.answer(
-        text=text,
+        text=text_msg,
         reply_markup=kb.get_callback_btns(btns=buttons, sizes=(2, 1)),
         parse_mode="HTML"
     )
-
 
 @admin_router.callback_query(StateFilter(Admin.file_options), F.data.startswith("download_"))
 async def download_file(callback: CallbackQuery, state: FSMContext, bot: Bot):
@@ -298,24 +389,32 @@ async def download_file(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
     if file_source_type == "zodiac":
         zodiac_sign = data.get("zodiac_sign")
-        file = bot.file_system.get_file(sign=zodiac_sign, kind="detailed")
-        label = f"Файл для {zodiac_sign}"
+        image_data = bot.file_system.get_image(sign=zodiac_sign, kind="detailed")
+        label = f"[{zodiac_sign}] Подробный гороскоп"
 
     elif file_source_type == "general_queue":
         queue_index = data.get("queue_index")
-        file = bot.file_system.get_file(sign="general_queue", kind=queue_index)
-        label = f"Файл №{queue_index + 1} из очереди"
+        image_data = bot.file_system.get_image(sign="general_queue", kind=queue_index)
+        label = f"Гороскоп №{queue_index + 1} из очереди"
 
     else:
-        await callback.message.answer("Ошибка: неизвестный источник файла.")
+        await callback.message.answer("Ошибка: неизвестный источник гороскопа.")
         return
 
-    if not file:
-        await callback.message.answer("Файл не найден.")
+    if not image_data:
+        await callback.message.answer("Гороскоп не найден.")
         return
+
+    image, text = image_data
+    caption = text or label
 
     await callback.message.delete()
-    await bot.send_document(chat_id=callback.message.chat.id, document=file, caption=label)
+    await bot.send_photo(
+        chat_id=callback.message.chat.id,
+        photo=image,
+        caption=caption,
+        parse_mode="HTML"
+    )
     await display_file_options(callback.message, bot, state, file_source_type, zodiac_sign if file_source_type == "zodiac" else None, queue_index if file_source_type == "general_queue" else None)
     await callback.answer()
 
@@ -331,7 +430,7 @@ async def replace_file(callback: CallbackQuery, state: FSMContext):
     if file_source_type == "zodiac":
         zodiac_sign = data.get("zodiac_sign")
         await callback.message.edit_text(
-            text=f"[{zodiac_sign}] Заменить подробный гороскоп.\nОтправьте новый документ:",
+            text=f"[{zodiac_sign}] Заменить подробный гороскоп.\n Отправьте <b>изображение</b> с описанием:",
             reply_markup=kb.get_callback_btns(btns={
                 'Назад': 'back_btn'
             })
@@ -340,14 +439,14 @@ async def replace_file(callback: CallbackQuery, state: FSMContext):
     elif file_source_type == "general_queue":
         queue_index = data.get("queue_index")
         await callback.message.edit_text(
-            text=f"Заменить файл №{queue_index + 1} из очереди.\nОтправьте новый документ:",
+            text=f"Заменить гороскоп №{queue_index + 1} из очереди.\nОтправьте <b>изображение</b> с описанием:",
             reply_markup=kb.get_callback_btns(btns={
                 'Назад': 'back_btn'
             })
         )
 
     else:
-        await callback.message.answer("Ошибка: неизвестный источник файла.")
+        await callback.message.answer("Ошибка: неизвестный источник гороскопа.")
         return
 
     await callback.answer()
@@ -432,21 +531,32 @@ async def back_from_zodiac_signs(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Admin.start)
     await callback.message.delete()
     await callback.answer()
-#
-#
-# # Список всех файлов
-# @admin_router.message(StateFilter("*"), F.text.casefold() == "список файлов")
-# async def list_all_files(message: Message, bot: Bot, state: FSMContext):
-#     lines = ["<b>📁 Список файлов по знакам зодиака:</b>"]
-#     for sign in ZODIAC_SIGNS:
-#         def short(p): return p.split(os.sep)[-1] if p else "—"
-#         gen_path = short(bot.file_system.get_path(sign, kind="general"))
-#         gen_date = bot.file_system.get_upload_date(sign, kind="general") or "—"
-#         det_path = short(bot.file_system.get_path(sign, kind="detailed"))
-#         det_date = bot.file_system.get_upload_date(sign, kind="detailed") or "—"
-#         lines.append(f"\n<b>{sign}</b>\nОбычный: {gen_path} ({gen_date})\nПодробный: {det_path} ({det_date})")
-#
-#     await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@admin_router.message(StateFilter("*"), F.text.casefold() == "список гороскопов")
+async def list_all_files(message: Message, bot: Bot, state: FSMContext):
+    lines = ["<b>🌐 Очередь общих гороскопов:</b>"]
+
+    # 1. Очередь общих гороскопов
+    queue = bot.file_system.files.get("general_queue", [])
+    for idx, entry in enumerate(queue):
+        path = entry.get("path")
+        filename = Path(path).name if path else "—"
+        description = (entry.get("text") or "—")[:50]
+        date = entry.get("upload_date") or "—"
+        lines.append(f"\n<b>{idx + 1})</b> <code>{filename}</code>\n📝 {description}\n📅 {date}")
+
+    # 2. Подробные гороскопы по знакам
+    lines.append("\n<b>🔮 Подробные гороскопы по знакам:</b>")
+    for sign in ZODIAC_SIGNS:
+        entry = bot.file_system.files.get(sign, {}).get("detailed", {})
+        path = entry.get("path")
+        filename = Path(path).name if path else "—"
+        description = (entry.get("text") or "—")[:50]
+        date = entry.get("upload_date") or "—"
+        lines.append(f"\n<b>{sign}</b>\n📄 <code>{filename}</code>\n📝 {description}\n📅 {date}")
+
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 
